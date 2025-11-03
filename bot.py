@@ -1,8 +1,7 @@
-# school_ideas_bot.py
+# bot.py
 import logging
 import sqlite3
 from datetime import datetime
-import os
 from typing import List
 
 from telegram import Update
@@ -14,16 +13,15 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I"  # 🔹 сюди встав свій токен з BotFather
+TOKEN = "ТУТ_ТВІЙ_BOTFATHER_TOKEN"
 
-# 🔸 Вкажи сюди свої Telegram ID, через кому якщо кілька (наприклад: [123456789, 987654321])
-ADMIN_IDS: List[int] = [1407696674,955785809]  
+# Встав свій Telegram ID сюди, щоб бачити ідеї
+ADMIN_IDS: List[int] = [123456789]
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
 
-# ----------------------------------
-# Логування
+# ---------------- Логування ----------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -72,7 +70,6 @@ def fetch_all_ideas(path: str = DB_PATH):
 
 # ---------- HANDLER-И ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Відправляє коротке привітання і підказку."""
     await update.message.reply_text(START_MESSAGE)
 
 
@@ -88,24 +85,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробка звичайного текстового повідомлення — вважаємо його ідеєю."""
     msg = update.message
     user = msg.from_user
     text = msg.text.strip()
     if not text:
-        await msg.reply_text("Порожня ідея? Напиши, будь ласка, коротко свою пропозицію.")
+        await msg.reply_text("Порожня ідея? Напиши коротко свою пропозицію.")
         return
 
-    # Збереження
     save_idea(user.id, user.username or "", user.first_name or "", text)
-    print(f"💡 Отримано ідею від @{user.username}: {text}")
     await msg.reply_text("Дякуємо! Ідея отримана — ми її розглянемо. 🙏")
 
 
 async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показати список ідей — доступно лише адміністраторам (вказаним у ADMIN_IDS)."""
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("У тебе немає доступу до цієї команди.")
         return
 
@@ -114,9 +107,8 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ідей поки що немає.")
         return
 
-    # Формуємо відповідь — лімітуємо кількість символів, щоб не перевантажити повідомлення
     messages = []
-    for r in rows[:50]:  # максимум 50 останніх
+    for r in rows[:50]:
         iid, uid, username, first_name, text, created_at = r
         created = created_at.replace("T", " ")[:19]
         name = f"@{username}" if username else (first_name or "Учень")
@@ -136,7 +128,7 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if cur_len + len(m) + len(CHUNK) > MAX_LEN:
                 parts.append(CHUNK.join(cur))
                 cur = [m]
-                cur_len = len(m)
+                cur_len = len(m) + len(CHUNK)
             else:
                 cur.append(m)
                 cur_len += len(m) + len(CHUNK)
@@ -154,7 +146,7 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db(DB_PATH)
     if TOKEN == "PUT_YOUR_BOT_TOKEN_HERE":
-        logger.error("❌ Встав свій BotFather TOKEN у файл перед запуском.")
+        logger.error("Встав свій BotFather TOKEN у файл перед запуском.")
         return
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -165,7 +157,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    print("✅ Бот запущений і слухає повідомлення...")
     logger.info("Бот запущено. Очікування повідомлень...")
     app.run_polling()
 
