@@ -13,20 +13,20 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = "ТУТ_ТВІЙ_BOTFATHER_TOKEN"
-
-# Встав свій Telegram ID сюди, щоб бачити ідеї
-ADMIN_IDS: List[int] = [123456789]
+# ⚙️ Налаштування
+TOKEN = "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I"
+ADMIN_IDS: List[int] = [1407696674,955785809]  # наприклад: [123456789]
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
 
-# ---------------- Логування ----------------
+# ---------- Логування ----------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
 
 # ---------- БАЗА ДАНИХ ----------
 def init_db(path: str = DB_PATH):
@@ -68,7 +68,17 @@ def fetch_all_ideas(path: str = DB_PATH):
     return rows
 
 
-# ---------- HANDLER-И ----------
+def get_idea_by_id(idea_id: int, path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM ideas WHERE id = ?", (idea_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+# ---------- КОМАНДИ ----------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_MESSAGE)
 
@@ -78,8 +88,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Команди:\n"
         "/start — привітання\n"
         "/help — ця підказка\n"
-        "Просто надішли своє повідомлення тут — це буде збережено як ідея.\n"
-        "/review — (тільки для адміністраторів) перегляд усіх ідей"
+        "Просто напиши свою ідею — ми її збережемо.\n"
+        "/review — перегляд усіх ідей (адмін)\n"
+        "/reply <id> <текст> — відповісти на ідею (адмін)"
     )
     await update.message.reply_text(txt)
 
@@ -89,16 +100,16 @@ async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = msg.from_user
     text = msg.text.strip()
     if not text:
-        await msg.reply_text("Порожня ідея? Напиши коротко свою пропозицію.")
+        await msg.reply_text("Порожня ідея? Напиши коротко, що саме ти пропонуєш 🙏")
         return
 
     save_idea(user.id, user.username or "", user.first_name or "", text)
-    await msg.reply_text("Дякуємо! Ідея отримана — ми її розглянемо. 🙏")
+    await msg.reply_text("Дякуємо! Ідея отримана — самоврядування її перегляне 💡")
 
 
 async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
         await update.message.reply_text("У тебе немає доступу до цієї команди.")
         return
 
@@ -128,7 +139,7 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if cur_len + len(m) + len(CHUNK) > MAX_LEN:
                 parts.append(CHUNK.join(cur))
                 cur = [m]
-                cur_len = len(m) + len(CHUNK)
+                cur_len = len(m)
             else:
                 cur.append(m)
                 cur_len += len(m) + len(CHUNK)
@@ -138,15 +149,50 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(p)
 
 
+# ---------- 💬 Відповідь на ідею ----------
+async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Ця команда тільки для адміністраторів 🚫")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /reply <id> <текст відповіді>")
+        return
+
+    try:
+        idea_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("ID має бути числом.")
+        return
+
+    idea_row = get_idea_by_id(idea_id)
+    if not idea_row:
+        await update.message.reply_text("Ідею з таким ID не знайдено.")
+        return
+
+    target_user_id = idea_row[0]
+    reply_text = " ".join(context.args[1:])
+
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"📢 Відповідь на твою ідею #{idea_id}:\n\n{reply_text}"
+        )
+        await update.message.reply_text("✅ Відповідь відправлено користувачу.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Не вдалося відправити: {e}")
+
+
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Не впевнений, що ти хотів цим сказати. Просто напиши свою ідею — ми збережемо її.")
+    await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
 
 
 # ---------- MAIN ----------
 def main():
     init_db(DB_PATH)
-    if TOKEN == "PUT_YOUR_BOT_TOKEN_HERE":
-        logger.error("Встав свій BotFather TOKEN у файл перед запуском.")
+    if TOKEN == "ТВІЙ ТОКЕН":
+        logger.error("❌ Встав свій токен перед запуском!")
         return
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -154,10 +200,11 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("review", review_ideas))
+    app.add_handler(CommandHandler("reply", reply_to_idea))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    logger.info("Бот запущено. Очікування повідомлень...")
+    logger.info("✅ Бот запущено. Очікування повідомлень...")
     app.run_polling()
 
 
