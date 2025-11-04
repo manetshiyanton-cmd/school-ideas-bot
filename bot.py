@@ -1,4 +1,3 @@
-# bot.py
 import os
 import logging
 import sqlite3
@@ -12,15 +11,17 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from dotenv import load_dotenv
 
-# ⚙️ Налаштування через Environment Variables
+# ---------- НАЛАШТУВАННЯ ----------
+load_dotenv()  # завантажуємо .env локально
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
 
-# ---------- Логування ----------
+# ---------- ЛОГУВАННЯ ----------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
