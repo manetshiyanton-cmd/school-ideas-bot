@@ -191,14 +191,13 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     if WEBHOOK_URL:
-        full_webhook_url = f"{WEBHOOK_URL}/{TOKEN}"
-        logger.info(f"🌐 Встановлюємо webhook: {full_webhook_url}")
-        app.bot.set_webhook(full_webhook_url)
-        logger.info("✅ Webhook успішно встановлено!")
+        # Render / HTTPS webhook
+        logger.info(f"🌐 Встановлюємо webhook: {WEBHOOK_URL}")
         app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path=TOKEN
+            url_path=TOKEN,                       # токен як url_path
+            webhook_url=f"{WEBHOOK_URL}/{TOKEN}"  # повний HTTPS URL
         )
     else:
         logger.info("✅ Запуск локально через polling")
