@@ -5,17 +5,11 @@ from datetime import datetime
 from typing import List
 
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ⚙️ Налаштування
-TOKEN = "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I"
-ADMIN_IDS: List[int] = [1407696674,955785809]  # наприклад: [123456789]
+TOKEN = "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I"  # встав свій токен сюди
+ADMIN_IDS: List[int] = [1407696674, 955785809]
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
@@ -26,7 +20,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-
 
 # ---------- БАЗА ДАНИХ ----------
 def init_db(path: str = DB_PATH):
@@ -78,7 +71,6 @@ def get_idea_by_id(idea_id: int, path: str = DB_PATH):
 
 
 # ---------- КОМАНДИ ----------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_MESSAGE)
 
@@ -149,7 +141,6 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(p)
 
 
-# ---------- 💬 Відповідь на ідею ----------
 async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -191,11 +182,11 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- MAIN ----------
 def main():
     init_db(DB_PATH)
-    if TOKEN == "ТВІЙ ТОКЕН":
+    if TOKEN == "ТУТ_ТВОЙ_ТОКЕН":
         logger.error("❌ Встав свій токен перед запуском!")
         return
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
