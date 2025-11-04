@@ -3,7 +3,7 @@ import os
 import logging
 import sqlite3
 from datetime import datetime
-import asyncio
+
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -193,18 +193,13 @@ if __name__ == "__main__":
     if WEBHOOK_URL:
         full_webhook_url = f"{WEBHOOK_URL}/{TOKEN}"
         logger.info(f"🌐 Встановлюємо webhook: {full_webhook_url}")
-
-        async def setup_and_run():
-            await app.bot.set_webhook(full_webhook_url)
-            logger.info("✅ Webhook успішно встановлено!")
-            await app.run_webhook(
-                listen="0.0.0.0",
-                port=PORT,
-                url_path=TOKEN
-            )
-
-        asyncio.run(setup_and_run())
-
+        app.bot.set_webhook(full_webhook_url)
+        logger.info("✅ Webhook успішно встановлено!")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN
+        )
     else:
         logger.info("✅ Запуск локально через polling")
         app.run_polling()
