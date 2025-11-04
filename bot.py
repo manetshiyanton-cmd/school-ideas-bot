@@ -11,10 +11,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from dotenv import load_dotenv
 
 # ---------- НАЛАШТУВАННЯ ----------
-load_dotenv()  # завантажуємо .env локально
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
 
@@ -191,5 +189,19 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    logger.info("✅ Бот запущено. Очікування повідомлень...")
-    app.run_polling()
+    # ---------- WEBHOOK SETUP ----------
+    PORT = int(os.environ.get("PORT", 5000))
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # додай через Render → Environment
+
+    if not WEBHOOK_URL:
+        logger.error("❌ Не знайдено WEBHOOK_URL у Environment Variables!")
+        exit(1)
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN
+    )
+    app.bot.set_webhook(f"{WEBHOOK_URL}{TOKEN}")
+
+    logger.info("✅ Бот запущено через WEBHOOK. Очікування повідомлень...")
