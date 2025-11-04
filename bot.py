@@ -1,3 +1,4 @@
+# bot.py
 import os
 import logging
 import sqlite3
@@ -12,26 +13,27 @@ from telegram.ext import (
     filters,
 )
 
-# ---------- НАЛАШТУВАННЯ ----------
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
-
-DB_PATH = "ideas.db"
-START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
-
-# ---------- ЛОГУВАННЯ ----------
+# ---------- ЛОГУЄМО ----------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
+# ---------- Environment Variables ----------
+TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "").split(","))) if os.environ.get("ADMIN_IDS") else []
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Render Live URL
+PORT = int(os.environ.get("PORT", 5000))   # Render передає свій порт у ENV
+
+DB_PATH = "ideas.db"
+START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
+
 # ---------- БАЗА ДАНИХ ----------
 def init_db(path: str = DB_PATH):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ideas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
@@ -40,17 +42,16 @@ def init_db(path: str = DB_PATH):
             text TEXT,
             created_at TEXT
         )
-        """
-    )
+    """)
     conn.commit()
     conn.close()
 
-def save_idea(user_id: int, username: str, first_name: str, text: str, path: str = DB_PATH):
+def save_idea(user_id, username, first_name, text, path: str = DB_PATH):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ideas (user_id, username, first_name, text, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, username, first_name, text, datetime.utcnow().isoformat()),
+        (user_id, username, first_name, text, datetime.utcnow().isoformat())
     )
     conn.commit()
     conn.close()
@@ -63,7 +64,7 @@ def fetch_all_ideas(path: str = DB_PATH):
     conn.close()
     return rows
 
-def get_idea_by_id(idea_id: int, path: str = DB_PATH):
+def get_idea_by_id(idea_id, path: str = DB_PATH):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM ideas WHERE id = ?", (idea_id,))
@@ -189,19 +190,16 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    # ---------- WEBHOOK SETUP ----------
-    PORT = int(os.environ.get("PORT", 5000))
-    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # додай через Render → Environment
-
-    if not WEBHOOK_URL:
-        logger.error("❌ Не знайдено WEBHOOK_URL у Environment Variables!")
-        exit(1)
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN
-    )
-    app.bot.set_webhook(f"{WEBHOOK_URL}{TOKEN}")
-
-    logger.info("✅ Бот запущено через WEBHOOK. Очікування повідомлень...")
+    if WEBHOOK_URL:
+        # якщо Render чи інший хостинг з HTTPS
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN
+        )
+        app.bot.set_webhook(f"{WEBHOOK_URL}{TOKEN}")
+        logger.info(f"✅ Webhook встановлено: {WEBHOOK_URL}{TOKEN}")
+    else:
+        # локально через polling
+        logger.info("✅ Запуск локально через polling")
+        app.run_polling()
