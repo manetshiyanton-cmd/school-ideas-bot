@@ -3,7 +3,6 @@ import os
 import logging
 import sqlite3
 from datetime import datetime
-from typing import List
 
 from telegram import Update
 from telegram.ext import (
@@ -47,7 +46,6 @@ def init_db(path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-
 def save_idea(user_id: int, username: str, first_name: str, text: str, path: str = DB_PATH):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
@@ -58,7 +56,6 @@ def save_idea(user_id: int, username: str, first_name: str, text: str, path: str
     conn.commit()
     conn.close()
 
-
 def fetch_all_ideas(path: str = DB_PATH):
     conn = sqlite3.connect(path)
     cur = conn.cursor()
@@ -66,7 +63,6 @@ def fetch_all_ideas(path: str = DB_PATH):
     rows = cur.fetchall()
     conn.close()
     return rows
-
 
 def get_idea_by_id(idea_id: int, path: str = DB_PATH):
     conn = sqlite3.connect(path)
@@ -98,7 +94,6 @@ async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await msg.reply_text("Порожня ідея? Напиши коротко, що саме ти пропонуєш 🙏")
         return
-
     save_idea(user.id, user.username or "", user.first_name or "", text)
     await msg.reply_text("Дякуємо! Ідея отримана — самоврядування її перегляне 💡")
 
@@ -180,10 +175,10 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
 
 # ---------- MAIN ----------
-def main():
+if __name__ == "__main__":
     if not TOKEN:
         logger.error("❌ Не знайдено BOT_TOKEN у Environment Variables!")
-        return
+        exit(1)
 
     init_db(DB_PATH)
 
@@ -197,6 +192,3 @@ def main():
 
     logger.info("✅ Бот запущено. Очікування повідомлень...")
     app.run_polling()
-
-if __name__ == "__main__":
-    main()
