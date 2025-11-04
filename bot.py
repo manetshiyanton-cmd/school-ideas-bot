@@ -1,9 +1,7 @@
-# bot.py
 import os
 import logging
 import sqlite3
 from datetime import datetime
-
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -20,18 +18,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------- Environment Variables ----------
+# ---------- ENVIRONMENT ----------
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "").split(","))) if os.environ.get("ADMIN_IDS") else []
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Render Live URL
-PORT = int(os.environ.get("PORT", 5000))   # Render передає свій порт у ENV
+WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+PORT = int(os.environ.get("PORT", 10000))
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
 
 # ---------- БАЗА ДАНИХ ----------
-def init_db(path: str = DB_PATH):
-    conn = sqlite3.connect(path)
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ideas (
@@ -46,8 +44,8 @@ def init_db(path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-def save_idea(user_id, username, first_name, text, path: str = DB_PATH):
-    conn = sqlite3.connect(path)
+def save_idea(user_id, username, first_name, text):
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ideas (user_id, username, first_name, text, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -56,16 +54,16 @@ def save_idea(user_id, username, first_name, text, path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-def fetch_all_ideas(path: str = DB_PATH):
-    conn = sqlite3.connect(path)
+def fetch_all_ideas():
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT id, user_id, username, first_name, text, created_at FROM ideas ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return rows
 
-def get_idea_by_id(idea_id, path: str = DB_PATH):
-    conn = sqlite3.connect(path)
+def get_idea_by_id(idea_id):
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM ideas WHERE id = ?", (idea_id,))
     row = cur.fetchone()
@@ -77,15 +75,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_MESSAGE)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = (
+    await update.message.reply_text(
         "Команди:\n"
         "/start — привітання\n"
         "/help — ця підказка\n"
-        "Просто напиши свою ідею — ми її збережемо.\n"
         "/review — перегляд усіх ідей (адмін)\n"
-        "/reply <id> <текст> — відповісти на ідею (адмін)"
+        "/reply <id> <текст> — відповісти на ідею (адмін)\n\n"
+        "Просто напиши свою ідею — ми її збережемо 😉"
     )
-    await update.message.reply_text(txt)
 
 async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -95,7 +92,7 @@ async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("Порожня ідея? Напиши коротко, що саме ти пропонуєш 🙏")
         return
     save_idea(user.id, user.username or "", user.first_name or "", text)
-    await msg.reply_text("Дякуємо! Ідея отримана — самоврядування її перегляне 💡")
+    await msg.reply_text("Дякуємо! Ідея отримана 💡")
 
 async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -108,44 +105,24 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ідей поки що немає.")
         return
 
-    messages = []
+    out = []
     for r in rows[:50]:
         iid, uid, username, first_name, text, created_at = r
         created = created_at.replace("T", " ")[:19]
-        name = f"@{username}" if username else (first_name or "Учень")
-        preview = text if len(text) <= 250 else text[:247] + "..."
-        messages.append(f"#{iid} {name} ({uid})\n{preview}\n{created}")
+        name = f"@{username}" if username else first_name or "Учень"
+        preview = text if len(text) <= 200 else text[:197] + "..."
+        out.append(f"#{iid} {name}\n{text}\n{created}")
 
-    CHUNK = "\n\n---\n\n"
-    payload = CHUNK.join(messages)
-    MAX_LEN = 3900
-    if len(payload) <= MAX_LEN:
-        await update.message.reply_text(payload)
-    else:
-        parts = []
-        cur = []
-        cur_len = 0
-        for m in messages:
-            if cur_len + len(m) + len(CHUNK) > MAX_LEN:
-                parts.append(CHUNK.join(cur))
-                cur = [m]
-                cur_len = len(m)
-            else:
-                cur.append(m)
-                cur_len += len(m) + len(CHUNK)
-        if cur:
-            parts.append(CHUNK.join(cur))
-        for p in parts:
-            await update.message.reply_text(p)
+    await update.message.reply_text("\n\n—\n\n".join(out[:10]))
 
 async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("Ця команда тільки для адміністраторів 🚫")
+        await update.message.reply_text("Ця команда лише для адмінів 🚫")
         return
 
     if len(context.args) < 2:
-        await update.message.reply_text("Використання: /reply <id> <текст відповіді>")
+        await update.message.reply_text("Використання: /reply <id> <текст>")
         return
 
     try:
@@ -154,35 +131,31 @@ async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ID має бути числом.")
         return
 
-    idea_row = get_idea_by_id(idea_id)
-    if not idea_row:
+    row = get_idea_by_id(idea_id)
+    if not row:
         await update.message.reply_text("Ідею з таким ID не знайдено.")
         return
 
-    target_user_id = idea_row[0]
+    target_user_id = row[0]
     reply_text = " ".join(context.args[1:])
-
     try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=f"📢 Відповідь на твою ідею #{idea_id}:\n\n{reply_text}"
-        )
+        await context.bot.send_message(chat_id=target_user_id, text=f"📢 Відповідь на твою ідею #{idea_id}:\n\n{reply_text}")
         await update.message.reply_text("✅ Відповідь відправлено користувачу.")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Не вдалося відправити: {e}")
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
+    await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею!")
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
     if not TOKEN:
-        logger.error("❌ Не знайдено BOT_TOKEN у Environment Variables!")
+        logger.error("❌ BOT_TOKEN не знайдено в Environment!")
         exit(1)
 
-    init_db(DB_PATH)
-
+    init_db()
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("review", review_ideas))
@@ -191,14 +164,8 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     if WEBHOOK_URL:
-        # Render / HTTPS webhook
-        logger.info(f"🌐 Встановлюємо webhook: {WEBHOOK_URL}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,                       # токен як url_path
-            webhook_url=f"{WEBHOOK_URL}/{TOKEN}"  # повний HTTPS URL
-        )
+        full_url = f"{WEBHOOK_URL}/{TOKEN}"
+        logger.info(f"🌍 Встановлюємо webhook: {full_url}")
+        app.run_webhook(listen="0.0.0.0", port=PORT, url_path=TOKEN, webhook_url=full_url)
     else:
-        logger.info("✅ Запуск локально через polling")
-        app.run_polling()
+        logger.error("❌ WEBHOOK_URL не знайдено! Для Render потрібно, щоб воно було у RENDER_EXTERNAL_URL.")
