@@ -1,15 +1,22 @@
 # bot.py
+import os
 import logging
 import sqlite3
 from datetime import datetime
 from typing import List
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
-# ⚙️ Налаштування
-TOKEN = "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I"  # встав свій токен сюди
-ADMIN_IDS: List[int] = [1407696674, 955785809]
+# ⚙️ Налаштування через Environment Variables
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
@@ -69,11 +76,9 @@ def get_idea_by_id(idea_id: int, path: str = DB_PATH):
     conn.close()
     return row
 
-
 # ---------- КОМАНДИ ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_MESSAGE)
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (
@@ -86,7 +91,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(txt)
 
-
 async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     user = msg.from_user
@@ -97,7 +101,6 @@ async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_idea(user.id, user.username or "", user.first_name or "", text)
     await msg.reply_text("Дякуємо! Ідея отримана — самоврядування її перегляне 💡")
-
 
 async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -140,7 +143,6 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for p in parts:
             await update.message.reply_text(p)
 
-
 async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -174,20 +176,18 @@ async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Не вдалося відправити: {e}")
 
-
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
 
-
 # ---------- MAIN ----------
 def main():
-    init_db(DB_PATH)
-    if TOKEN == "ТУТ_ТВОЙ_ТОКЕН":
-        logger.error("❌ Встав свій токен перед запуском!")
+    if not TOKEN:
+        logger.error("❌ Не знайдено BOT_TOKEN у Environment Variables!")
         return
 
-    app = Application.builder().token(TOKEN).build()
+    init_db(DB_PATH)
 
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("review", review_ideas))
@@ -197,7 +197,6 @@ def main():
 
     logger.info("✅ Бот запущено. Очікування повідомлень...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
