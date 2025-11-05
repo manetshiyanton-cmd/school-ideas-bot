@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
@@ -35,6 +36,16 @@ logger.info(f"👑 ADMIN_IDS = {ADMIN_IDS}")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Привіт! Надішли мені свою ідею, і я її збережу!")
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Команди:\n"
+        "/start — привітання\n"
+        "/help — ця підказка\n"
+        "Просто напиши свою ідею — ми її збережемо.\n"
+        "/review — перегляд усіх ідей (адмін)\n"
+        "/delete <номер> — видалити ідею (адмін)"
+    )
+
 async def show_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ideas:
         await update.message.reply_text("Поки що немає жодної ідеї 😢")
@@ -48,7 +59,9 @@ async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text:
         ideas.append({
             "text": text,
-            "user": f"@{user.username}" if user.username else user.first_name
+            "user": f"@{user.username}" if user.username else user.first_name,
+            "id": user.id,
+            "created_at": datetime.utcnow().isoformat()
         })
         save_ideas(ideas)
         await update.message.reply_text(f"✅ Ідею збережено! — від {ideas[-1]['user']}")
@@ -78,7 +91,7 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Ідеї з таким номером немає.")
 
-# === Команда для адмінів — перегляд усіх ідей ===
+# === Команда для адмінів — перегляд усіх ідей у форматі #<номер> @user (id) / текст / дата ===
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
@@ -88,8 +101,11 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💤 Поки що немає жодної ідеї.")
         return
 
-    text = "\n".join(f"{i+1}. {idea['text']} — від {idea['user']}" for i, idea in enumerate(ideas))
-    await update.message.reply_text(f"💡 Всі ідеї:\n{text}")
+    messages = []
+    for i, idea in enumerate(ideas):
+        created = idea.get("created_at", "").replace("T", " ")[:19]
+        messages.append(f"#{i+1} {idea['user']} ({idea['id']})\n{idea['text']}\n{created}")
+    await update.message.reply_text("\n\n".join(messages))
 
 # === ЗАПУСК БОТА ===
 if __name__ == "__main__":
@@ -102,6 +118,7 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("ideas", show_ideas))
     app.add_handler(CommandHandler("delete", delete))
     app.add_handler(CommandHandler("review", review))
