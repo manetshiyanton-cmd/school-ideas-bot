@@ -2,22 +2,22 @@ import os
 import json
 import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # === ЛОГИ ===
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# === ШЛЯХ ДО ФАЙЛУ ІДЕЙ ===
+# === ФАЙЛ З ІДЕЯМИ ===
 IDEAS_FILE = "ideas.json"
 
-# === ФУНКЦІЇ ДЛЯ ЗБЕРЕЖЕННЯ ІДЕЙ ===
+# === ФУНКЦІЇ ДЛЯ РОБОТИ З ІДЕЯМИ ===
 def load_ideas():
     if os.path.exists(IDEAS_FILE):
         try:
             with open(IDEAS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except json.JSONDecodeError:
             return []
     return []
 
@@ -25,56 +25,64 @@ def save_ideas(ideas):
     with open(IDEAS_FILE, "w", encoding="utf-8") as f:
         json.dump(ideas, f, ensure_ascii=False, indent=2)
 
-ideas = load_ideas()
-
-# === КОМАНДИ БОТА ===
+# === КОМАНДИ ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привіт! Надішли мені свою ідею, і я її збережу!")
+    await update.message.reply_text("👋 Привіт! Надішли ідею — я її збережу. Щоб переглянути, пиши /ideas.")
 
-async def show_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idea = update.message.text.strip()
+    ideas = load_ideas()
+    ideas.append({"text": idea, "user": update.effective_user.first_name})
+    save_ideas(ideas)
+    await update.message.reply_text("✅ Ідею додано!")
+
+async def list_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ideas = load_ideas()
     if not ideas:
-        await update.message.reply_text("Поки що немає жодної ідеї 😢")
+        await update.message.reply_text("📭 Немає жодної ідеї.")
     else:
-        text = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
-        await update.message.reply_text(f"💡 Ідеї:\n{text}")
+        text = "\n\n".join([f"{i+1}. {idea['text']} — від {idea['user']}" for i, idea in enumerate(ideas)])
+        await update.message.reply_text(f"💡 Ідеї:\n\n{text}\n\nЩоб видалити ідею, напиши /delete <номер>")
 
-async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text:
-        ideas.append(text)
+async def delete_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ideas = load_ideas()
+    if not ideas:
+        await update.message.reply_text("😕 Немає ідей для видалення.")
+        return
+
+    if len(context.args) == 0:
+        await update.message.reply_text("⚠️ Вкажи номер ідеї, яку хочеш видалити. Наприклад: /delete 2")
+        return
+
+    try:
+        num = int(context.args[0]) - 1
+        if num < 0 or num >= len(ideas):
+            await update.message.reply_text("❌ Такої ідеї не існує.")
+            return
+
+        deleted_idea = ideas.pop(num)
         save_ideas(ideas)
-        await update.message.reply_text("✅ Ідею збережено!")
-    else:
-        await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
+        await update.message.reply_text(f"🗑 Ідею '{deleted_idea['text']}' видалено!")
+    except ValueError:
+        await update.message.reply_text("⚠️ Вкажи правильний номер!")
 
-# === ЗАПУСК БОТА ===
-if __name__ == "__main__":
+# === ГОЛОВНА ФУНКЦІЯ ===
+async def main():
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не знайдено в Environment!")
-        exit(1)
+        return
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("ideas", show_ideas))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_idea))
+    app.add_handler(CommandHandler("ideas", list_ideas))
+    app.add_handler(CommandHandler("delete", delete_idea))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_idea))
 
-    # Якщо Render середовище — запускаємо через webhook
-    if os.getenv("RENDER"):
-        WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL")
-        PORT = int(os.getenv("PORT", "10000"))
-        if not WEBHOOK_URL:
-            logger.error("❌ WEBHOOK_URL не знайдено! Для Render потрібно, щоб воно було у RENDER_EXTERNAL_URL.")
-            exit(1)
-        logger.info("🚀 Запуск через webhook на Render")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}"
-        )
-    else:
-        logger.info("✅ Запуск локально через polling")
-        app.run_polling()
+    logger.info("✅ Бот запущено локально (polling)...")
+    await app.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
