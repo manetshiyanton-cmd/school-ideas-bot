@@ -1,125 +1,240 @@
+# bot.py
 import os
 import logging
+import sqlite3
+from datetime import datetime
+import asyncio
+
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
 )
 
-# ===== Налаштування логів =====
-logging.basicConfig(level=logging.INFO)
+# ---------- ЛОГУЄМО ----------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL")
+# ---------- Environment Variables ----------
+TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "").split(","))) if os.environ.get("ADMIN_IDS") else []
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+PORT = int(os.environ.get("PORT", 5000))
 
-# ===== Адміни =====
-ADMINS = [123456789]  # 🔹 ВСТАВ СВІЙ TELEGRAM ID
+DB_PATH = "ideas.db"
+START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
 
-# ===== Сховище ідей =====
-ideas = []
+# ---------- БАЗА ДАНИХ ----------
+def init_db(path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ideas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT,
+            first_name TEXT,
+            text TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# ===== Команди =====
+def save_idea(user_id, username, first_name, text, path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ideas (user_id, username, first_name, text, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, username, first_name, text, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+def fetch_all_ideas(path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute("SELECT id, user_id, username, first_name, text, created_at FROM ideas ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_idea_by_id(idea_id, path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM ideas WHERE id = ?", (idea_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+def delete_idea(idea_id, path: str = DB_PATH):
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ideas WHERE id = ?", (idea_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+# ---------- КОМАНДИ ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привіт! Надішли свою ідею, і я її збережу!")
+    await update.message.reply_text(START_MESSAGE)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📜 Команди:\n"
+    txt = (
+        "Команди:\n"
         "/start — привітання\n"
         "/help — ця підказка\n"
+        "Просто напиши свою ідею — ми її збережемо.\n"
         "/review — перегляд усіх ідей (адмін)\n"
         "/reply <id> <текст> — відповісти на ідею (адмін)\n"
-        "/delete <id> — видалити ідею (адмін)\n"
-        "\nПросто напиши свою ідею — і я її збережу 💡"
+        "/delete <id> — видалити ідею (адмін)"
     )
-    await update.message.reply_text(text)
+    await update.message.reply_text(txt)
 
-# ===== Збереження ідей =====
-async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+async def receive_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    user = msg.from_user
+    text = msg.text.strip()
     if not text:
-        await update.message.reply_text("⚠️ Введи ідею текстом.")
+        await msg.reply_text("Порожня ідея? Напиши коротко, що саме ти пропонуєш 🙏")
         return
-    idea_id = len(ideas) + 1
-    ideas.append({"id": idea_id, "text": text, "user": update.message.from_user.full_name})
-    await update.message.reply_text(f"✅ Ідею #{idea_id} збережено!")
+    save_idea(user.id, user.username or "", user.first_name or "", text)
+    await msg.reply_text("Дякуємо! Ідея отримана — самоврядування її перегляне 💡")
 
-# ===== Перегляд ідей =====
-async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id not in ADMINS:
-        await update.message.reply_text("⛔ Ти не маєш прав переглядати всі ідеї.")
+async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("У тебе немає доступу до цієї команди.")
         return
 
-    if not ideas:
-        await update.message.reply_text("😕 Ще немає жодної ідеї.")
+    rows = fetch_all_ideas()
+    if not rows:
+        await update.message.reply_text("Ідей поки що немає.")
         return
 
-    text = "💡 Список ідей:\n"
-    for idea in ideas:
-        text += f"#{idea['id']}: {idea['text']} — від {idea['user']}\n"
-    await update.message.reply_text(text)
+    messages = []
+    for r in rows[:50]:
+        iid, uid, username, first_name, text, created_at = r
+        created = created_at.replace("T", " ")[:19]
+        name = f"@{username}" if username else (first_name or "Учень")
+        preview = text if len(text) <= 250 else text[:247] + "..."
+        messages.append(f"#{iid} {name} ({uid})\n{preview}\n{created}")
 
-# ===== Видалення ідей =====
-async def delete_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id not in ADMINS:
-        await update.message.reply_text("⛔ Ти не маєш прав для цієї дії.")
+    CHUNK = "\n\n---\n\n"
+    payload = CHUNK.join(messages)
+    MAX_LEN = 3900
+    if len(payload) <= MAX_LEN:
+        await update.message.reply_text(payload)
+    else:
+        parts = []
+        cur = []
+        cur_len = 0
+        for m in messages:
+            if cur_len + len(m) + len(CHUNK) > MAX_LEN:
+                parts.append(CHUNK.join(cur))
+                cur = [m]
+                cur_len = len(m)
+            else:
+                cur.append(m)
+                cur_len += len(m) + len(CHUNK)
+        if cur:
+            parts.append(CHUNK.join(cur))
+        for p in parts:
+            await update.message.reply_text(p)
+
+async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Ця команда тільки для адміністраторів 🚫")
         return
 
-    if len(context.args) < 1:
-        await update.message.reply_text("Вкажи ID ідеї для видалення, наприклад: /delete 2")
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /reply <id> <текст відповіді>")
         return
 
     try:
         idea_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("⚠️ ID має бути числом.")
+        await update.message.reply_text("ID має бути числом.")
         return
 
-    for idea in ideas:
-        if idea["id"] == idea_id:
-            ideas.remove(idea)
-            await update.message.reply_text(f"🗑 Ідею #{idea_id} видалено.")
-            return
+    idea_row = get_idea_by_id(idea_id)
+    if not idea_row:
+        await update.message.reply_text("Ідею з таким ID не знайдено.")
+        return
 
-    await update.message.reply_text("❌ Ідею з таким ID не знайдено.")
+    target_user_id = idea_row[0]
+    reply_text = " ".join(context.args[1:])
 
-# ===== Обробка кнопок (плейсхолдер) =====
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("🔘 Кнопка натиснута!")
-
-# ===== Основний запуск =====
-app = ApplicationBuilder().token(TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("review", review))
-app.add_handler(CommandHandler("delete", delete_idea))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_idea))
-app.add_handler(CallbackQueryHandler(button_handler))
-
-# ===== Webhook для Render =====
-if WEBHOOK_URL:
-    port = int(os.environ.get("PORT", 10000))
-    webhook_url = f"{WEBHOOK_URL}/webhook"
-
-    async def main():
-        logger.info(f"🌐 Налаштовую вебхук: {webhook_url}")
-        await app.bot.set_webhook(webhook_url)
-        await app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path="webhook",
-            webhook_url=webhook_url,
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"📢 Відповідь на твою ідею #{idea_id}:\n\n{reply_text}"
         )
-else:
-    async def main():
-        logger.info("🚀 Запуск у режимі polling (локально)")
-        await app.run_polling()
+        await update.message.reply_text("✅ Відповідь відправлено користувачу.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Не вдалося відправити: {e}")
 
+async def delete_idea_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Ця команда тільки для адміністраторів 🚫")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("Використання: /delete <id>")
+        return
+
+    try:
+        idea_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("ID має бути числом.")
+        return
+
+    if delete_idea(idea_id):
+        await update.message.reply_text(f"🗑️ Ідею #{idea_id} успішно видалено.")
+    else:
+        await update.message.reply_text("Ідею з таким ID не знайдено.")
+
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
+
+# ---------- MAIN ----------
 if __name__ == "__main__":
-    import asyncio
+    if not TOKEN:
+        logger.error("❌ BOT_TOKEN не знайдено в Environment Variables!")
+        exit(1)
+
+    init_db(DB_PATH)
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("review", review_ideas))
+    app.add_handler(CommandHandler("reply", reply_to_idea))
+    app.add_handler(CommandHandler("delete", delete_idea_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
+    app.add_handler(MessageHandler(filters.COMMAND, unknown))
+
+    async def main():
+        if WEBHOOK_URL:
+            port = int(os.environ.get("PORT", 10000))
+            webhook_url = f"{WEBHOOK_URL}/webhook"
+            logger.info(f"🌐 Налаштовую вебхук: {webhook_url}")
+            await app.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                url_path="webhook",
+                webhook_url=webhook_url,
+            )
+        else:
+            logger.info("✅ WEBHOOK_URL не знайдено — запускаємо у локальному режимі (polling)")
+            await app.run_polling()
+
     asyncio.run(main())
