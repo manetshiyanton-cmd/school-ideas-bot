@@ -7,13 +7,13 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 # === НАЛАШТУВАННЯ ===
 TOKEN = os.getenv("BOT_TOKEN", "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I")
-ADMIN_ID = 6429865341  # твій Telegram ID (для команди /review і /reply)
+ADMIN_ID = int(os.getenv("ADMIN_ID", "6429865341"))  # ✅ зчитує з Environment або fallback
 WEBHOOK_URL = "https://school-ideas-bot-6.onrender.com/webhook"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ideas = {}  # Сховище ідей
+ideas = {}
 next_id = 1
 
 
@@ -38,8 +38,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
         return
 
     if not ideas:
@@ -51,8 +52,9 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
         return
 
     if len(context.args) < 2:
@@ -70,8 +72,9 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
         return
 
     if len(context.args) != 1:
@@ -100,6 +103,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === ОСНОВНИЙ ЦИКЛ ===
 async def main():
     logger.info(f"🌐 Налаштовую вебхук: {WEBHOOK_URL}")
+    logger.info(f"👑 ADMIN_ID = {ADMIN_ID}")
 
     app = (
         ApplicationBuilder()
@@ -123,9 +127,6 @@ async def main():
     )
 
 
-# === ЗАПУСК ===
 if __name__ == "__main__":
-    import nest_asyncio
     nest_asyncio.apply()
-
     asyncio.run(main())
