@@ -1,116 +1,96 @@
 import os
-import json
 import logging
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
 )
 
-# 🔹 Логи
+# === Налаштування логів ===
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# 🔹 Конфіг
+# === Змінні середовища ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [6505686873]  # заміни на свій Telegram ID
-IDEAS_FILE = "ideas.json"
-
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не знайдено в Environment!")
-    raise SystemExit
+    exit(1)
 
-# 🔹 Завантаження/збереження ідей
-def load_ideas():
-    if os.path.exists(IDEAS_FILE):
-        with open(IDEAS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+# === Список ідей ===
+ideas = []
 
-def save_ideas(ideas):
-    with open(IDEAS_FILE, "w", encoding="utf-8") as f:
-        json.dump(ideas, f, ensure_ascii=False, indent=2)
+# === ID адмінів (вкажи свої ID сюди) ===
+ADMINS = [123456789, 987654321]  # заміни своїми Telegram ID
 
-# 🔹 Команди
+# === Команди ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привіт! Надішли ідею або подивись список — /ideas")
+    await update.message.reply_text("👋 Вітаю! Надішли мені свою ідею 💡")
 
 async def add_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text:
-        await update.message.reply_text("❗ Напиши свою ідею після /add або просто повідомленням.")
         return
+    ideas.append(text)
+    await update.message.reply_text("✅ Ідею збережено!")
 
-    ideas = load_ideas()
-    ideas.append({"user": update.effective_user.first_name, "text": text})
-    save_ideas(ideas)
-
-    await update.message.reply_text("✅ Ідею додано!")
-
-async def show_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ideas = load_ideas()
+async def list_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ideas:
-        await update.message.reply_text("📭 Ідей поки немає.")
+        await update.message.reply_text("📭 Поки що ідей немає.")
         return
 
-    text = "💡 Список ідей:\n\n"
-    for i, idea in enumerate(ideas, start=1):
-        text += f"{i}. {idea['text']} — {idea['user']}\n"
+    message = "\n".join([f"{i+1}. {idea}" for i, idea in enumerate(ideas)])
+    await update.message.reply_text(f"💡 Ідеї:\n{message}")
 
-    # Якщо адмін — додаємо кнопки
-    if update.effective_user.id in ADMIN_IDS:
-        buttons = [
-            [InlineKeyboardButton(f"❌ Видалити {i+1}", callback_data=f"delete_{i}")]
-            for i in range(len(ideas))
-        ]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text(text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text)
+# === Видалення ідей (лише адміни) ===
+async def delete_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMINS:
+        await update.message.reply_text("⛔ Ти не маєш прав для видалення ідей.")
+        return
 
-# 🔹 Обробка кнопок
+    if not ideas:
+        await update.message.reply_text("😕 Немає ідей для видалення.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(f"❌ {idea}", callback_data=f"delete_{i}")]
+        for i, idea in enumerate(ideas)
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Вибери ідею для видалення:", reply_markup=reply_markup)
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if not query.data.startswith("delete_"):
-        return
+    if query.data.startswith("delete_"):
+        index = int(query.data.split("_")[1])
+        if 0 <= index < len(ideas):
+            deleted_idea = ideas.pop(index)
+            await query.edit_message_text(f"🗑 Ідею видалено:\n«{deleted_idea}»")
+        else:
+            await query.edit_message_text("⚠️ Ідея не знайдена або вже видалена.")
 
-    user_id = query.from_user.id
-    if user_id not in ADMIN_IDS:
-        await query.edit_message_text("🚫 У тебе немає прав для видалення ідей.")
-        return
-
-    index = int(query.data.split("_")[1])
-    ideas = load_ideas()
-
-    if 0 <= index < len(ideas):
-        deleted = ideas.pop(index)
-        save_ideas(ideas)
-        await query.edit_message_text(f"🗑 Ідею видалено:\n{deleted['text']}")
-    else:
-        await query.edit_message_text("⚠️ Ідею не знайдено або вже видалено.")
-
-# 🔹 Запуск
-def run_bot():
+# === Основна функція ===
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("ideas", show_ideas))
+    app.add_handler(CommandHandler("list", list_ideas))
+    app.add_handler(CommandHandler("deleteidea", delete_idea))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_idea))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     logger.info("✅ Бот запущено (polling)...")
+    app.run_polling()
 
-    # 🔧 Фікс для Render (використовує вже існуючий event loop)
-    try:
-        asyncio.get_event_loop().run_until_complete(app.run_polling())
-    except RuntimeError:
-        asyncio.run(app.run_polling())
-
+# === Запуск ===
 if __name__ == "__main__":
-    run_bot()
+    main()
