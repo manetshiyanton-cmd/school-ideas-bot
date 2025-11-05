@@ -7,13 +7,13 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 # === НАЛАШТУВАННЯ ===
 TOKEN = os.getenv("BOT_TOKEN", "8277763753:AAFsw4MaJ6mRa7P6zIZMVZWYeA8WcWjhO7I")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "6429865341"))  # ✅ зчитує з Environment або fallback
+ADMIN_ID = 6429865341  # твій Telegram ID (для команди /review і /reply)
 WEBHOOK_URL = "https://school-ideas-bot-6.onrender.com/webhook"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ideas = {}
+ideas = {}  # Сховище ідей
 next_id = 1
 
 
@@ -38,9 +38,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
     if not ideas:
@@ -52,9 +51,8 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
     if len(context.args) < 2:
@@ -72,9 +70,8 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text(f"⛔ Немає доступу. Твій ID: {user_id}")
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
     if len(context.args) != 1:
@@ -118,7 +115,14 @@ async def main():
     app.add_handler(CommandHandler("delete", delete))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    await app.bot.set_webhook(WEBHOOK_URL)
+    # ✅ Перевіряємо, чи вже є вебхук
+    current_webhook = await app.bot.get_webhook_info()
+    if current_webhook.url != WEBHOOK_URL:
+        logger.info("🔄 Оновлюю вебхук...")
+        await app.bot.set_webhook(WEBHOOK_URL)
+    else:
+        logger.info("✅ Вебхук вже встановлений, пропускаю оновлення.")
+
     await app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
@@ -127,6 +131,8 @@ async def main():
     )
 
 
+# === ЗАПУСК ===
 if __name__ == "__main__":
+    import nest_asyncio
     nest_asyncio.apply()
     asyncio.run(main())
