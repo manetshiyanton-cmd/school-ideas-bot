@@ -1,10 +1,11 @@
 import os
 import json
 import logging
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
-    CallbackQueryHandler, filters
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
 )
 
 # 🔹 Логи
@@ -19,7 +20,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [6505686873]  # заміни на свій Telegram ID
 IDEAS_FILE = "ideas.json"
 
-# 🔹 Перевіряємо наявність токена
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не знайдено в Environment!")
     raise SystemExit
@@ -37,12 +37,12 @@ def save_ideas(ideas):
 
 # 🔹 Команди
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привіт! Надішли ідею для школи або переглянь існуючі /ideas")
+    await update.message.reply_text("👋 Привіт! Надішли ідею або подивись список — /ideas")
 
 async def add_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text:
-        await update.message.reply_text("❗ Напиши свою ідею після команди /add або просто надішли повідомлення.")
+        await update.message.reply_text("❗ Напиши свою ідею після /add або просто повідомленням.")
         return
 
     ideas = load_ideas()
@@ -95,19 +95,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("⚠️ Ідею не знайдено або вже видалено.")
 
-# 🔹 Основна функція
-async def main():
+# 🔹 Запуск
+def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ideas", show_ideas))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_idea))
-    app.add_handler(CallbackQueryHandler(button_handler))  # ✅ обробка кнопок
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("✅ Бот запущено локально (polling)...")
-    await app.run_polling()
+    logger.info("✅ Бот запущено (polling)...")
 
-# 🔹 Запуск
+    # 🔧 Фікс для Render (використовує вже існуючий event loop)
+    try:
+        asyncio.get_event_loop().run_until_complete(app.run_polling())
+    except RuntimeError:
+        asyncio.run(app.run_polling())
+
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    run_bot()
