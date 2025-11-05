@@ -27,8 +27,9 @@ def save_ideas(ideas):
 
 ideas = load_ideas()
 
-# === ID адміністратора ===
-ADMIN_ID = 6429865341  # заміни на свій Telegram ID
+# === ADMIN IDS ===
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
+logger.info(f"👑 ADMIN_IDS = {ADMIN_IDS}")
 
 # === КОМАНДИ БОТА ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -50,9 +51,9 @@ async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
 
-# === Команда для адміна — видалення ідеї ===
+# === Команда для адмінів — видалення ідеї ===
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
@@ -73,9 +74,9 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Ідеї з таким номером немає.")
 
-# === Команда для адміна — перегляд усіх ідей ===
+# === Команда для адмінів — перегляд усіх ідей ===
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
