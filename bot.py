@@ -27,9 +27,8 @@ def save_ideas(ideas):
 
 ideas = load_ideas()
 
-# === ЧИТАЄМО СПИСОК АДМІНІВ ===
-raw_admins = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = [int(x.strip()) for x in raw_admins.split(",") if x.strip().isdigit()]
+# === ID адміністратора ===
+ADMIN_ID = 6429865341  # заміни на свій Telegram ID
 
 # === КОМАНДИ БОТА ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -51,25 +50,41 @@ async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
 
-# === НОВА КОМАНДА /delete (тільки для адмінів) ===
-async def delete_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("⛔ У тебе немає прав на цю команду.")
+# === Команда для адміна — видалення ідеї ===
+async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
-    if len(context.args) != 1 or not context.args[0].isdigit():
-        await update.message.reply_text("⚠️ Використання: /delete <номер_ідеї>")
+    if len(context.args) != 1:
+        await update.message.reply_text("⚠️ Використання: /delete <номер ідеї>")
         return
 
-    index = int(context.args[0]) - 1
-    if index < 0 or index >= len(ideas):
-        await update.message.reply_text("❌ Ідеї з таким номером не існує.")
+    try:
+        idea_index = int(context.args[0]) - 1
+    except ValueError:
+        await update.message.reply_text("⚠️ Номер має бути числом.")
         return
 
-    deleted = ideas.pop(index)
-    save_ideas(ideas)
-    await update.message.reply_text(f"🗑️ Ідею видалено: {deleted}")
+    if 0 <= idea_index < len(ideas):
+        removed = ideas.pop(idea_index)
+        save_ideas(ideas)
+        await update.message.reply_text(f"🗑️ Ідею видалено: {removed}")
+    else:
+        await update.message.reply_text("❌ Ідеї з таким номером немає.")
+
+# === Команда для адміна — перегляд усіх ідей ===
+async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
+        return
+
+    if not ideas:
+        await update.message.reply_text("💤 Поки що немає жодної ідеї.")
+        return
+
+    text = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
+    await update.message.reply_text(f"💡 Всі ідеї:\n{text}")
 
 # === ЗАПУСК БОТА ===
 if __name__ == "__main__":
@@ -83,7 +98,8 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ideas", show_ideas))
-    app.add_handler(CommandHandler("delete", delete_idea))
+    app.add_handler(CommandHandler("delete", delete))
+    app.add_handler(CommandHandler("review", review))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_idea))
 
     # Якщо Render середовище — запускаємо через webhook
