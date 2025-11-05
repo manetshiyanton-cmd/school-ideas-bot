@@ -3,13 +3,12 @@ import os
 import logging
 import sqlite3
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     filters,
 )
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "").split(","))) if os.environ.get("ADMIN_IDS") else []
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL") or os.environ.get("RENDER_EXTERNAL_URL")
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("PORT", 10000))
 
 DB_PATH = "ideas.db"
 START_MESSAGE = "💬 Привіт! Поділись ідеєю, як зробити школу кращою — самоврядування все побачить 😉"
@@ -72,13 +71,6 @@ def get_idea_by_id(idea_id, path: str = DB_PATH):
     conn.close()
     return row
 
-def delete_idea(idea_id, path: str = DB_PATH):
-    conn = sqlite3.connect(path)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM ideas WHERE id = ?", (idea_id,))
-    conn.commit()
-    conn.close()
-
 # ---------- КОМАНДИ ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_MESSAGE)
@@ -88,9 +80,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Команди:\n"
         "/start — привітання\n"
         "/help — ця підказка\n"
+        "Просто напиши свою ідею — ми її збережемо.\n"
         "/review — перегляд усіх ідей (адмін)\n"
-        "/reply <id> <текст> — відповісти на ідею (адмін)\n"
-        "/delete <id> — видалити ідею (адмін)"
+        "/reply <id> <текст> — відповісти на ідею (адмін)"
     )
     await update.message.reply_text(txt)
 
@@ -115,18 +107,33 @@ async def review_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ідей поки що немає.")
         return
 
+    messages = []
     for r in rows[:50]:
         iid, uid, username, first_name, text, created_at = r
         created = created_at.replace("T", " ")[:19]
         name = f"@{username}" if username else (first_name or "Учень")
         preview = text if len(text) <= 250 else text[:247] + "..."
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🗑️ Видалити", callback_data=f"delete_{iid}")]]
-        )
-        await update.message.reply_text(
-            f"#{iid} {name} ({uid})\n{preview}\n{created}",
-            reply_markup=keyboard
-        )
+        messages.append(f"#{iid} {name} ({uid})\n{preview}\n{created}")
+
+    CHUNK = "\n\n---\n\n"
+    payload = CHUNK.join(messages)
+    MAX_LEN = 3900
+    if len(payload) <= MAX_LEN:
+        await update.message.reply_text(payload)
+    else:
+        parts, cur, cur_len = [], [], 0
+        for m in messages:
+            if cur_len + len(m) + len(CHUNK) > MAX_LEN:
+                parts.append(CHUNK.join(cur))
+                cur = [m]
+                cur_len = len(m)
+            else:
+                cur.append(m)
+                cur_len += len(m) + len(CHUNK)
+        if cur:
+            parts.append(CHUNK.join(cur))
+        for p in parts:
+            await update.message.reply_text(p)
 
 async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -161,40 +168,6 @@ async def reply_to_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Не вдалося відправити: {e}")
 
-async def delete_idea_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("Ця команда тільки для адміністраторів 🚫")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Використання: /delete <id>")
-        return
-
-    try:
-        idea_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("ID має бути числом.")
-        return
-
-    delete_idea(idea_id)
-    await update.message.reply_text(f"✅ Ідею #{idea_id} видалено.")
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if user_id not in ADMIN_IDS:
-        await query.edit_message_text("🚫 Лише адміністратор може видаляти ідеї.")
-        return
-
-    data = query.data
-    if data.startswith("delete_"):
-        idea_id = int(data.split("_")[1])
-        delete_idea(idea_id)
-        await query.edit_message_text(f"✅ Ідею #{idea_id} видалено.")
-
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Не впевнений, що ти хотів цим сказати 😅 Просто напиши свою ідею.")
 
@@ -205,24 +178,24 @@ if __name__ == "__main__":
         exit(1)
 
     init_db(DB_PATH)
-
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("review", review_ideas))
     app.add_handler(CommandHandler("reply", reply_to_idea))
-    app.add_handler(CommandHandler("delete", delete_idea_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idea))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     if WEBHOOK_URL:
-        logger.info(f"🌐 Встановлюємо webhook: {WEBHOOK_URL}")
+        webhook_path = "webhook"
+        webhook_url = f"{WEBHOOK_URL}/{webhook_path}"
+        logger.info(f"🌐 Встановлюємо webhook: {webhook_url}")
         app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path=TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+            url_path=webhook_path,
+            webhook_url=webhook_url,
         )
     else:
         logger.info("✅ WEBHOOK_URL не знайдено — запускаємо у локальному режимі (polling)")
