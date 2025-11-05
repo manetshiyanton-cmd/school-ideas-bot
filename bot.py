@@ -39,15 +39,19 @@ async def show_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ideas:
         await update.message.reply_text("Поки що немає жодної ідеї 😢")
     else:
-        text = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
+        text = "\n".join(f"{i+1}. {idea['text']} — від {idea['user']}" for i, idea in enumerate(ideas))
         await update.message.reply_text(f"💡 Ідеї:\n{text}")
 
 async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     text = update.message.text.strip()
     if text:
-        ideas.append(text)
+        ideas.append({
+            "text": text,
+            "user": f"@{user.username}" if user.username else user.first_name
+        })
         save_ideas(ideas)
-        await update.message.reply_text("✅ Ідею збережено!")
+        await update.message.reply_text(f"✅ Ідею збережено! — від {ideas[-1]['user']}")
     else:
         await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
 
@@ -70,7 +74,7 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 0 <= idea_index < len(ideas):
         removed = ideas.pop(idea_index)
         save_ideas(ideas)
-        await update.message.reply_text(f"🗑️ Ідею видалено: {removed}")
+        await update.message.reply_text(f"🗑️ Ідею видалено: {removed['text']} — від {removed['user']}")
     else:
         await update.message.reply_text("❌ Ідеї з таким номером немає.")
 
@@ -84,7 +88,7 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💤 Поки що немає жодної ідеї.")
         return
 
-    text = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas))
+    text = "\n".join(f"{i+1}. {idea['text']} — від {idea['user']}" for i, idea in enumerate(ideas))
     await update.message.reply_text(f"💡 Всі ідеї:\n{text}")
 
 # === ЗАПУСК БОТА ===
