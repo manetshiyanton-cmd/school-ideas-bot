@@ -1,12 +1,9 @@
 import os
 import json
 import logging
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-
-# Для Google Sheets
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 # === ЛОГИ ===
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,24 +28,9 @@ def save_ideas(ideas):
 
 ideas = load_ideas()
 
-# === GOOGLE SHEETS НАЛАШТУВАННЯ ===
-SHEET_ID = os.getenv("SHEET_ID")
-GOOGLE_SERVICE_JSON = os.getenv("GOOGLE_SERVICE_JSON")
-
-gc = None
-worksheet = None
-
-try:
-    creds_dict = json.loads(GOOGLE_SERVICE_JSON)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    gc = gspread.authorize(creds)
-    worksheet = gc.open_by_key(SHEET_ID).sheet1
-    logger.info("✅ Підключення до Google Sheets успішне")
-except Exception as e:
-    logger.error(f"❌ Помилка підключення до Google Sheets: {e}")
+# === ADMIN IDS ===
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
+logger.info(f"👑 ADMIN_IDS = {ADMIN_IDS}")
 
 # === КОМАНДИ БОТА ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,70 +41,71 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Команди:\n"
         "/start — привітання\n"
         "/help — ця підказка\n"
-        "/ideas — переглянути всі ідеї\n"
-        "/delete <номер> — видалити ідею (адмін)\n"
-        "Просто напиши свою ідею — ми її збережемо."
+        "Просто напиши свою ідею — ми її збережемо.\n"
+        "/review — перегляд усіх ідей (адмін)\n"
+        "/delete <номер> — видалити ідею (адмін)"
     )
 
 async def show_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ideas:
         await update.message.reply_text("Поки що немає жодної ідеї 😢")
     else:
-        text = ""
-        for i, idea in enumerate(ideas):
-            user = idea.get("user", "Unknown")
-            user_id = idea.get("user_id", "Unknown")
-            idea_text = idea.get("text", "")
-            timestamp = idea.get("time", "")
-            text += f"#{i+1} @{user} ({user_id})\n{idea_text}\n{timestamp}\n\n"
-        await update.message.reply_text(f"💡 Ідеї:\n{text.strip()}")
+        text = "\n".join(f"{i+1}. {idea['text']} — від {idea['user']}" for i, idea in enumerate(ideas))
+        await update.message.reply_text(f"💡 Ідеї:\n{text}")
 
-async def delete_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ADMIN_IDS = [int(id_) for id_ in os.getenv("ADMIN_IDS", "").split(",") if id_]
+async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = update.message.text.strip()
+    if text:
+        ideas.append({
+            "text": text,
+            "user": f"@{user.username}" if user.username else user.first_name,
+            "id": user.id,
+            "created_at": datetime.utcnow().isoformat()
+        })
+        save_ideas(ideas)
+        await update.message.reply_text(f"✅ Ідею збережено! — від {ideas[-1]['user']}")
+    else:
+        await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
+
+# === Команда для адмінів — видалення ідеї ===
+async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
     if len(context.args) != 1:
-        await update.message.reply_text("⚠️ Використання: /delete <номер>")
+        await update.message.reply_text("⚠️ Використання: /delete <номер ідеї>")
         return
 
-    idx = int(context.args[0]) - 1
-    if idx < 0 or idx >= len(ideas):
-        await update.message.reply_text("❌ Ідеї з таким номером немає.")
+    try:
+        idea_index = int(context.args[0]) - 1
+    except ValueError:
+        await update.message.reply_text("⚠️ Номер має бути числом.")
         return
 
-    removed = ideas.pop(idx)
-    save_ideas(ideas)
-    await update.message.reply_text(f"🗑️ Ідею #{idx+1} видалено.")
-
-# === ОБРОБКА ПОВІДОМЛЕНЬ ===
-async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text:
-        idea_entry = {
-            "user": update.effective_user.username or update.effective_user.full_name,
-            "user_id": update.effective_user.id,
-            "text": text,
-            "time": str(update.message.date)
-        }
-        ideas.append(idea_entry)
+    if 0 <= idea_index < len(ideas):
+        removed = ideas.pop(idea_index)
         save_ideas(ideas)
-        await update.message.reply_text("✅ Ідею збережено!")
-
-        # Запис у Google Sheets
-        if worksheet:
-            try:
-                worksheet.append_row([
-                    idea_entry["user"],
-                    idea_entry["user_id"],
-                    idea_entry["text"],
-                    idea_entry["time"]
-                ])
-            except Exception as e:
-                logger.error(f"❌ Не вдалося додати в Google Sheets: {e}")
+        await update.message.reply_text(f"🗑️ Ідею видалено: {removed['text']} — від {removed['user']}")
     else:
-        await update.message.reply_text("Будь ласка, напиши ідею текстом 😉")
+        await update.message.reply_text("❌ Ідеї з таким номером немає.")
+
+# === Команда для адмінів — перегляд усіх ідей у форматі #<номер> @user (id) / текст / дата ===
+async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
+        return
+
+    if not ideas:
+        await update.message.reply_text("💤 Поки що немає жодної ідеї.")
+        return
+
+    messages = []
+    for i, idea in enumerate(ideas):
+        created = idea.get("created_at", "").replace("T", " ")[:19]
+        messages.append(f"#{i+1} {idea['user']} ({idea['id']})\n{idea['text']}\n{created}")
+    await update.message.reply_text("\n\n".join(messages))
 
 # === ЗАПУСК БОТА ===
 if __name__ == "__main__":
@@ -137,7 +120,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("ideas", show_ideas))
-    app.add_handler(CommandHandler("delete", delete_idea))
+    app.add_handler(CommandHandler("delete", delete))
+    app.add_handler(CommandHandler("review", review))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_idea))
 
     # Якщо Render середовище — запускаємо через webhook

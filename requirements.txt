@@ -1,4 +1,2 @@
 python-telegram-bot[webhooks]==20.3
 python-dotenv==1.0.1
-gspread==5.10.0
-oauth2client
