@@ -9,8 +9,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# === ШЛЯХ ДО ФАЙЛУ ІДЕЙ ===
-IDEAS_FILE = "ideas.json"
+# === ФАЙЛ ДЛЯ ЗБЕРЕЖЕННЯ ІДЕЙ ===
+IDEAS_FILE = "ideas.dp"  # змінив файл на ideas.dp
 
 # === ФУНКЦІЇ ДЛЯ ЗБЕРЕЖЕННЯ ІДЕЙ ===
 def load_ideas():
