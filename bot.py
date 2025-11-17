@@ -1,81 +1,80 @@
+import os
 import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-import gspread
-import os
-from oauth2client.service_account import ServiceAccountCredentials
-
-# -------------------- ЛОГУВАННЯ --------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
 )
+import gspread
+from google.oauth2.service_account import Credentials
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# -------------------- НАЛАШТУВАННЯ --------------------
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    logger.error("❌ BOT_TOKEN не знайдено в ENV!")
-    raise SystemExit
+# ---------------- GOOGLE SHEETS ---------------- #
 
-ADMIN_IDS = [1407696674, 955785809]
-logger.info(f"👑 ADMIN_IDS = {ADMIN_IDS}")
-
-# -------------------- GOOGLE SHEETS ПІДКЛЮЧЕННЯ --------------------
 def get_gsheet():
     try:
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        google_creds_json = os.getenv("GOOGLE_CREDS_JSON")
+        if not google_creds_json:
+            raise Exception("GOOGLE_CREDS_JSON is missing")
 
-        creds_json = os.getenv("GOOGLE_CREDS_JSON")
-        if not creds_json:
-            logger.error("❌ GOOGLE_CREDS_JSON ПУСТЕ!")
-            return None
-
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            eval(creds_json),
-            scope
+        creds = Credentials.from_service_account_info(
+            eval(google_creds_json),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
+
         client = gspread.authorize(creds)
+
         sheet = client.open("school_ideas").sheet1
+        logger.info("✅ Google Sheets connected")
+
         return sheet
+
     except Exception as e:
-        logger.error(f"❌ Помилка підключення до Google Sheets: {e}")
+        logger.error(f"❌ Google Sheets error: {e}")
         return None
+
 
 sheet = get_gsheet()
 
-# -------------------- ОБРОБНИК ПОВІДОМЛЕНЬ --------------------
+# ---------------- BOT LOGIC ---------------- #
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привіт! Надсилай свою ідею 👇")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
     text = update.message.text
 
-    logger.info(f"💬 Отримано: {user.id} — {text}")
-
-    # записуємо в Google Sheets
     if sheet:
-        try:
-            sheet.append_row([str(user.id), user.full_name, text])
-            logger.info("📌 Записано в Google Sheets")
-        except Exception as e:
-            logger.error(f"❌ Не вдалось записати в таблицю: {e}")
+        sheet.append_row([update.effective_user.id, update.effective_user.full_name, text])
+        await update.message.reply_text("🟢 Ідею додано!")
+    else:
+        await update.message.reply_text("🔴 Помилка! Google Sheets недоступний.")
 
-    await update.message.reply_text("✔️ Прийнято!")
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if sheet:
+        data = sheet.get_all_values()
+        msg = "\n".join([f"{row[1]}: {row[2]}" for row in data[1:]])
+        await update.message.reply_text(msg if msg else "Поки ідей нема 😅")
+    else:
+        await update.message.reply_text("Sheets недоступний.")
 
-# -------------------- ЗАПУСК --------------------
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+# ---------------- START BOT ---------------- #
 
+def main():
+    token = os.getenv("BOT_TOKEN")
+    app = ApplicationBuilder().token(token).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🚀 Запуск через webhook на Render")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    logger.info("🚀 Bot started!")
+    app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
