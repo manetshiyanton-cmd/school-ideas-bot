@@ -49,7 +49,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help — допомога\n"
         "/review — перегляд усіх ідей (адмін)\n"
         "/delete <номер> — видалити ідею (адмін)\n"
-        "/reply <номер> <текст> — відповісти користувачу на його ідею (адмін)\n\n"
+        "/reply <номер> <текст> — відповісти на ідею (адмін)\n\n"
         "Або просто напиши свою ідею 😉"
     )
 
@@ -60,11 +60,9 @@ async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await update.message.reply_text("⚠️ Напиши ідею текстом, будь ласка.")
         return
-
     if not sheet:
         await update.message.reply_text("⚠️ Не можу підключитись до Google Sheets. Звернись до адміна.")
         return
-
     try:
         sheet.append_row([
             text,
@@ -82,16 +80,13 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
-
     if not sheet:
         await update.message.reply_text("⚠️ Помилка підключення до таблиці.")
         return
-
     data = sheet.get_all_values()[1:]  # без заголовку
     if not data:
         await update.message.reply_text("💤 Поки що немає жодної ідеї.")
         return
-
     text = "\n\n".join(
         f"#{i+1} {row[1]} ({row[2]})\n{row[0]}\n🕒 {row[3]}"
         for i, row in enumerate(data)
@@ -103,22 +98,18 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
-
     if len(context.args) != 1 or not context.args[0].isdigit():
         await update.message.reply_text("⚠️ Використання: /delete <номер>")
         return
-
     index = int(context.args[0])
     if not sheet:
         await update.message.reply_text("⚠️ Не вдалося підключитись до таблиці.")
         return
-
     try:
         data = sheet.get_all_values()
         if index <= 0 or index >= len(data):
             await update.message.reply_text("❌ Такої ідеї не існує.")
             return
-
         sheet.delete_rows(index + 1)  # +1 бо перший рядок — заголовки
         await update.message.reply_text(f"🗑️ Ідею #{index} видалено.")
     except Exception as e:
@@ -130,30 +121,30 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
-
     if len(context.args) < 2 or not context.args[0].isdigit():
-        await update.message.reply_text("⚠️ Використання: /reply <номер> <текст відповіді>")
+        await update.message.reply_text("⚠️ Використання: /reply <номер> <текст>")
         return
-
     index = int(context.args[0])
     reply_text = " ".join(context.args[1:])
-
     if not sheet:
         await update.message.reply_text("⚠️ Не вдалося підключитись до таблиці.")
         return
-
     try:
         data = sheet.get_all_values()
         if index <= 0 or index >= len(data):
             await update.message.reply_text("❌ Такої ідеї не існує.")
             return
-
-        user_id = int(data[index][2])
-        await context.bot.send_message(chat_id=user_id, text=f"💬 Відповідь на твою ідею:\n{reply_text}")
-        await update.message.reply_text(f"✅ Відповідь на ідею #{index} надіслано користувачу.")
+        user_id_str = data[index][2]
+        try:
+            chat_id = int(user_id_str.strip())
+            await context.bot.send_message(chat_id=chat_id, text=f"💬 Відповідь адміністратора: {reply_text}")
+            await update.message.reply_text(f"✅ Відповідь на ідею #{index} надіслано.")
+        except Exception as e:
+            logger.error(f"❌ Не вдалося надіслати відповідь: {e}")
+            await update.message.reply_text("⚠️ Не вдалося надіслати відповідь.")
     except Exception as e:
-        logger.error(f"❌ Помилка при відповіді: {e}")
-        await update.message.reply_text("⚠️ Не вдалося надіслати відповідь.")
+        logger.error(f"❌ Помилка обробки /reply: {e}")
+        await update.message.reply_text("⚠️ Сталася помилка.")
 
 # === ЗАПУСК ===
 if __name__ == "__main__":
@@ -177,7 +168,6 @@ if __name__ == "__main__":
         if not WEBHOOK_URL:
             logger.error("❌ WEBHOOK_URL не знайдено!")
             exit(1)
-
         logger.info("🚀 Запуск через webhook на Render")
         app.run_webhook(
             listen="0.0.0.0",
