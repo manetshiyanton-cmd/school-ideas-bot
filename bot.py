@@ -150,8 +150,8 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         row = data[index]
-        chat_id = int(row[2])  # <-- виправлено: беремо user.id
-        update.message.bot.send_message(chat_id=chat_id, text=f"💬 Відповідь на твою ідею:\n{text_reply}")
+        chat_id = int(row[2])  # беремо user.id
+        await context.bot.send_message(chat_id=chat_id, text=f"💬 Відповідь на твою ідею:\n{text_reply}")
         await update.message.reply_text(f"✅ Відповідь на ідею #{index} надіслано!")
     except Exception as e:
         logger.error(f"❌ Не вдалося надіслати відповідь: {e}")
