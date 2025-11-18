@@ -18,13 +18,11 @@ def get_gsheet():
         sheet_id = os.getenv("SHEET_ID")
         if not creds_json or not sheet_id:
             raise ValueError("❌ GOOGLE_CREDENTIALS_JSON або SHEET_ID не знайдено в Environment")
-
         creds_dict = json.loads(creds_json)
         creds = Credentials.from_service_account_info(
             creds_dict,
             scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
-
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(sheet_id)
         worksheet = sh.sheet1
@@ -45,15 +43,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # === /help ===
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = (
-        "/start – Запустити бота\n"
-        "/help – Список команд\n"
-        "/review – Перегляд усіх ідей (адмін)\n"
-        "/delete <номер> – Видалити ідею (адмін)\n"
-        "/reply <user_id> <текст> – Відповісти користувачу\n\n"
+    await update.message.reply_text(
+        "Команди:\n"
+        "/start — початок\n"
+        "/help — допомога\n"
+        "/review — перегляд усіх ідей (адмін)\n"
+        "/delete <номер> — видалити ідею (адмін)\n"
+        "/reply <номер> <текст> — відповісти користувачу на його ідею (адмін)\n\n"
         "Або просто напиши свою ідею 😉"
     )
-    await update.message.reply_text(help_text)
 
 # === Обробка нової ідеї ===
 async def handle_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,23 +126,34 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Не вдалося видалити ідею.")
 
 # === /reply (адмін) ===
-async def reply_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ Ти не маєш доступу до цього.")
         return
 
+    if len(context.args) < 2 or not context.args[0].isdigit():
+        await update.message.reply_text("⚠️ Використання: /reply <номер> <текст відповіді>")
+        return
+
+    index = int(context.args[0])
+    reply_text = " ".join(context.args[1:])
+
+    if not sheet:
+        await update.message.reply_text("⚠️ Не вдалося підключитись до таблиці.")
+        return
+
     try:
-        if len(context.args) < 2:
-            await update.message.reply_text("Формат: /reply <user_id> <текст>")
+        data = sheet.get_all_values()
+        if index <= 0 or index >= len(data):
+            await update.message.reply_text("❌ Такої ідеї не існує.")
             return
 
-        user_id = int(context.args[0])
-        text = " ".join(context.args[1:])
-        await context.bot.send_message(chat_id=user_id, text=text)
-        await update.message.reply_text("Повідомлення надіслано ✔️")
-
+        user_id = int(data[index][2])
+        await context.bot.send_message(chat_id=user_id, text=f"💬 Відповідь на твою ідею:\n{reply_text}")
+        await update.message.reply_text(f"✅ Відповідь на ідею #{index} надіслано користувачу.")
     except Exception as e:
-        await update.message.reply_text(f"Помилка: {e}")
+        logger.error(f"❌ Помилка при відповіді: {e}")
+        await update.message.reply_text("⚠️ Не вдалося надіслати відповідь.")
 
 # === ЗАПУСК ===
 if __name__ == "__main__":
@@ -159,7 +168,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("review", review))
     app.add_handler(CommandHandler("delete", delete))
-    app.add_handler(CommandHandler("reply", reply_user))
+    app.add_handler(CommandHandler("reply", reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_idea))
 
     if os.getenv("RENDER"):
